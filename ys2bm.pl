@@ -186,7 +186,6 @@ sub parseNode
         
         
         if   ($tag_name eq "author")  { $text = skip_tag($node); }
-        elsif($tag_name eq "lb") { $text = tag_lb($node); }
         elsif($tag_name eq "bibl")  { $text = skip_tag($node); }
         elsif($tag_name eq "biblScope")  { $text = skip_tag($node); }
         elsif($tag_name eq "byline")  { $text = tag_byline($node); }     
@@ -206,6 +205,7 @@ sub parseNode
         elsif($tag_name eq "item")  { $text = tag_item($node); }  
         elsif($tag_name eq "l")  { $text = skip_tag($node); }
         elsif($tag_name eq "label")  { $text = skip_tag($node); }
+        elsif($tag_name eq "lb") { $text = tag_lb($node); }
         elsif($tag_name eq "lg")  { $text = tag_lg($node); }
         elsif($tag_name eq "list")  { $text = tag_list($node); }
         elsif($tag_name eq "listBibl")  { $text = skip_tag($node); }
@@ -288,8 +288,30 @@ sub tag_cell
     my $text = "";
     
     # 處理標記
-    $text = "<c>";
+    # <cell> => <c>
+    # <cell cols="3"> => <c3>
+    # <cell rows="3"> => <c r3>
+    # <cell cols="3" rows="3"> => <c3 r3>
+
+    my $att_cols = $node->getAttributeNode("cols");	# 取得屬性
+    my $att_cols_v = "";
+    if($att_cols)
+    {
+        $att_cols_v = $att_cols->getValue();	# 取得屬性內容
+    }
     
+    my $att_rows = $node->getAttributeNode("rows");	# 取得屬性
+    my $att_rows_v = "";
+    if($att_rows)
+    {
+        $att_rows_v = $att_rows->getValue();	# 取得屬性內容
+    }
+    
+    $text = "<c";
+    if($att_cols_v) { $text .= $att_cols_v; }
+    if($att_rows_v) { $text .= " r" . $att_rows_v; }
+    $text .= ">";
+
     # 處理內容
     $text .= parseChild($node);
     
