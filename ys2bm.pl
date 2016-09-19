@@ -50,6 +50,7 @@ my @tags = ();      # 將 tag name 逐一推入堆疊中
 my $div_level = 0;  # div 的層次, 第一層要轉成 <Q1> ,第二層 <Q2> 依此類推
 my $list_level = 0;  # div 的層次, 第一層的 item 要轉成 <I1> ,第二層 <I2> 依此類推
 my %no_use_tag = ();    # 記錄沒有處理的 tag
+my %gaiji = ();         # 組字式 <g ref="#Z1267"/> => $gaiji{"Z1267"} = "[日*虛]"
 my $_linehead = "Y01n0001_p";   # 行首的基本資料
 
 my $vol = "";    # y01 處理冊數
@@ -92,6 +93,7 @@ sub initial
     $div_level = 0;  # div 的層次, 第一層要轉成 <Q1> ,第二層 <Q2> 依此類推
     $list_level = 0;  # div 的層次, 第一層的 item 要轉成 <I1> ,第二層 <I2> 依此類推
     %no_use_tag = ();    # 記錄沒有處理的 tag
+    %gaiji = ();         # 組字式 <g ref="#Z1267"/> => $gaiji{"Z1267"} = "[日*虛]"
     
     $_linehead = sprintf("Y%02dn%04d_p", $sutra, $sutra);   # Y01n0001_p 行首的基本資料 
 }
@@ -167,6 +169,12 @@ sub ParserXML
     my $file = shift;
 	my $doc = $parser->parsefile($file);
 	#my $root = $doc->getDocumentElement();
+    my @charDecl = $doc->getElementsByTagName("charDecl");
+    # 有些有好幾個 charDecl , 所以要一一分析處理
+    foreach my $charnode (@charDecl)
+    {
+        parseNode($charnode);	    # 進行分析, 主要是讀取缺字資料      
+    }
     my @body = $doc->getElementsByTagName("body");
 	my $text = parseNode($body[0]);	# 進行分析
 	$doc->dispose;
@@ -184,13 +192,13 @@ sub parseNode
         my $tag_name = $node->getNodeName();	# 取得標記名稱     
         push(@tags, $tag_name);                 # 將 tag name 推入堆疊
         
-        
         if   ($tag_name eq "author")  { $text = skip_tag($node); }
         elsif($tag_name eq "bibl")  { $text = skip_tag($node); }
         elsif($tag_name eq "biblScope")  { $text = skip_tag($node); }
         elsif($tag_name eq "byline")  { $text = tag_byline($node); }     
         elsif($tag_name eq "cb")  { $text = skip_tag($node); }   
         elsif($tag_name eq "cell")  { $text = tag_cell($node); }   
+        elsif($tag_name eq "char")  { $text = tag_char($node); }
         elsif($tag_name eq "choice")  { $text = tag_choice($node); }
         elsif($tag_name eq "cit")  { $text = skip_tag($node); }
         elsif($tag_name eq "corr")  { $text = tag_corr($node); }
@@ -209,6 +217,7 @@ sub parseNode
         elsif($tag_name eq "lg")  { $text = tag_lg($node); }
         elsif($tag_name eq "list")  { $text = tag_list($node); }
         elsif($tag_name eq "listBibl")  { $text = skip_tag($node); }
+        elsif($tag_name eq "mapping")  { $text = tag_mapping($node); }
         elsif($tag_name eq "note")  { $text = tag_note($node); }
         elsif($tag_name eq "num")  { $text = skip_tag($node); }
         elsif($tag_name eq "opener")  { $text = tag_opener($node); }
@@ -319,6 +328,38 @@ sub tag_cell
     return $text;
 }
 
+# <char>
+# 處理缺字用的標記
+sub tag_char
+{
+    my $node = shift;
+    my $text = "";
+    
+    # 處理缺字用的
+    # <char xml:id="Z1267">
+    #   <mapping type="組字式">[日*虛]</mapping>
+    # </char>
+    
+    my $att_id = $node->getAttributeNode("xml:id");	# 取得屬性
+    my $id = "";
+    if($att_id)
+    {
+        $id = $att_id->getValue();	# 取得屬性內容
+    }
+    
+    # 處理內容
+    $text = parseChild($node);
+    
+    if($att_id and $text)
+    {
+        $text =~ s/\s//g;
+        $gaiji{$id} = $text;
+    }
+    
+    # 處理標記結束    
+    return "";
+}
+
 # <choice>
 sub tag_choice
 {
@@ -409,7 +450,17 @@ sub tag_g
     if($att_ref)
     {
         my $ref = $att_ref->getValue();	# 取得屬性內容
-        $text = "[" . $ref . "]";
+        $ref =~ s/^#//;
+        
+        if($gaiji{$ref})
+        {
+            $text = $gaiji{$ref};
+        }
+        else
+        {
+            write_err("標頭無此字的組字式", $node->toString());
+            $text = "[？]";    
+        }
     }
     else
     {
@@ -517,6 +568,34 @@ sub tag_list
     {
         $text .= "</L>";
     }
+    return $text;
+}
+
+# <mapping>
+# 處理缺字用的標記
+sub tag_mapping
+{
+    my $node = shift;
+    my $text = "";
+    
+    # 處理缺字用的
+    # <char xml:id="Z1267">
+    #   <mapping type="組字式">[日*虛]</mapping>
+    # </char>
+    
+    my $att_type = $node->getAttributeNode("type");	# 取得屬性
+    my $att_type_v = "";
+    if($att_type)
+    {
+        $att_type_v = $att_type->getValue();	# 取得屬性內容
+    }
+    
+    return "" if ($att_type_v ne "組字式");    # 不是組字式就忽略 (我也不知有沒有這種情況?)
+    
+    # 處理內容
+    $text .= parseChild($node);   
+   
+    # 處理標記結束    
     return $text;
 }
 
@@ -775,7 +854,7 @@ sub tag_default
     my $text = "";
     
     # 處理標記 <xxx>
-    if($node->getNodeName ne "body")
+    if($node->getNodeName ne "body" and $node->getNodeName ne "charDecl")
     {
         $no_use_tag{$node->getNodeName} = 1;    # 記錄沒用過的 tag
         $text = "<<" . $node->getNodeName . ">>";
